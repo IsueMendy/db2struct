@@ -8,8 +8,51 @@ import (
 	"strings"
 )
 
+func GetTablesFromMysqlDatabase(mariadbUser string, mariadbPassword string, mariadbHost string, mariadbPort int,
+	mariadbDatabase string) ([]*string, error) {
+
+	var err error
+	var db *sql.DB
+	if mariadbPassword != "" {
+		db, err = sql.Open("mysql", mariadbUser+":"+mariadbPassword+"@tcp("+mariadbHost+":"+strconv.Itoa(mariadbPort)+")/"+mariadbDatabase+"?&parseTime=True")
+	} else {
+		db, err = sql.Open("mysql", mariadbUser+"@tcp("+mariadbHost+":"+strconv.Itoa(mariadbPort)+")/"+mariadbDatabase+"?&parseTime=True")
+	}
+	defer db.Close()
+
+	if err != nil {
+		fmt.Println("Error opening mysql db: " + err.Error())
+		return nil, err
+	}
+
+	tables := []*string{}
+	sqlQuery := "SELECT table_name from INFORMATION_SCHEMA.tables where table_schema=?"
+
+	// fmt.Printf("sql:%s,%+v\n",sqlQuery,mariadbDatabase)
+	rows, err := db.Query(sqlQuery, mariadbDatabase)
+	if err != nil {
+		fmt.Println("Error selecting from db: " + err.Error())
+		return nil, err
+	}
+	if rows != nil {
+		defer rows.Close()
+	} else {
+		fmt.Println("no results returned for database:" + mariadbDatabase)
+		return nil, errors.New("No results returned for table")
+	}
+
+	for rows.Next() {
+		var table string
+		rows.Scan(&table)
+		tables = append(tables, &table)
+	}
+
+	return tables, nil
+}
+
 // GetColumnsFromMysqlTable Select column details from information schema and return map of map
-func GetColumnsFromMysqlTable(mariadbUser string, mariadbPassword string, mariadbHost string, mariadbPort int, mariadbDatabase string, mariadbTable string) (*map[string]map[string]string, []string, error) {
+func GetColumnsFromMysqlTable(mariadbUser string, mariadbPassword string, mariadbHost string, mariadbPort int,
+	mariadbDatabase string, mariadbTable string) (*map[string]map[string]string, []string, error) {
 
 	var err error
 	var db *sql.DB
@@ -31,7 +74,8 @@ func GetColumnsFromMysqlTable(mariadbUser string, mariadbPassword string, mariad
 	// Store colum as map of maps
 	columnDataTypes := make(map[string]map[string]string)
 	// Select columnd data from INFORMATION_SCHEMA
-	columnDataTypeQuery := "SELECT COLUMN_NAME, COLUMN_KEY, DATA_TYPE, IS_NULLABLE, COLUMN_COMMENT FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND table_name = ? order by ordinal_position asc"
+	columnDataTypeQuery := "SELECT COLUMN_NAME, COLUMN_KEY, DATA_TYPE, IS_NULLABLE, COLUMN_COMMENT FROM " +
+		"INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND table_name = ? order by ordinal_position asc"
 
 	if Debug {
 		fmt.Println("running: " + columnDataTypeQuery)
@@ -65,13 +109,14 @@ func GetColumnsFromMysqlTable(mariadbUser string, mariadbPassword string, mariad
 }
 
 // Generate go struct entries for a map[string]interface{} structure
-func generateMysqlTypes(obj map[string]map[string]string, columnsSorted []string, depth int, jsonAnnotation bool, gormAnnotation bool, gureguTypes bool) string {
+func generateMysqlTypes(obj map[string]map[string]string, columnsSorted []string, depth int, jsonAnnotation bool,
+	gormAnnotation bool, gureguTypes bool, tagAnnotation string, sqlType bool) string {
 	structure := "struct {"
 
 	for _, key := range columnsSorted {
 		mysqlType := obj[key]
 		nullable := false
-		if mysqlType["nullable"] == "YES" {
+		if sqlType && mysqlType["nullable"] == "YES" {
 			nullable = true
 		}
 
@@ -95,13 +140,17 @@ func generateMysqlTypes(obj map[string]map[string]string, columnsSorted []string
 			annotations = append(annotations, fmt.Sprintf("json:\"%s\"", key))
 		}
 
+		if tagAnnotation != "" {
+			annotations = append(annotations, fmt.Sprintf("%s:\"%s\"", tagAnnotation, key))
+		}
+
 		if len(annotations) > 0 {
 			// add colulmn comment
-			comment:=mysqlType["comment"]
+			comment := mysqlType["comment"]
 			structure += fmt.Sprintf("\n%s %s `%s`  //%s", fieldName, valueType, strings.Join(annotations, " "), comment)
-			//structure += fmt.Sprintf("\n%s %s `%s`", fieldName, valueType, strings.Join(annotations, " "))
+			// structure += fmt.Sprintf("\n%s %s `%s`", fieldName, valueType, strings.Join(annotations, " "))
 		} else {
-			structure += fmt.Sprintf("\n%s %s",fieldName,valueType)
+			structure += fmt.Sprintf("\n%s %s", fieldName, valueType)
 		}
 	}
 	return structure
