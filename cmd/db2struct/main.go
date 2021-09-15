@@ -8,6 +8,7 @@ import (
 	"github.com/howeyc/gopass"
 	"os"
 	"strconv"
+	"strings"
 )
 
 var mariadbHost = os.Getenv("MYSQL_HOST")
@@ -111,9 +112,9 @@ func genStructsByTables(dbTable *string, localStruct string, localPackage string
 		return
 	}
 
-	// If structName is not set we need to default it
+	// If structName is not set we need to default it  CamelName
 	if localStruct == "" {
-		localStruct = *dbTable
+		localStruct = CamelName(*dbTable)
 		// *structName = "newStruct"
 	}
 	// If packageName is not set we need to default it
@@ -149,4 +150,10 @@ func getMariadbPassword(password string) error {
 	mariadbPassword = new(string)
 	*mariadbPassword = password
 	return nil
+}
+
+func CamelName(name string) string {
+	name = strings.Replace(name, "_", " ", -1)
+	name = strings.Title(name)
+	return strings.Replace(name, " ", "", -1)
 }
